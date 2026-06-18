@@ -6,8 +6,7 @@
    مثال:
    const ENDPOINT_URL = "https://script.google.com/macros/s/AKfy.../exec";
    ============================================================ */
-const ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbw5NO7SS4OnWtHMTQbaDR-4Hfo36pOf8_l4Bf5A0ayG3MbpNZJOuF4zmC126-YaA_Py/exec";
-
+const ENDPOINT_URL = "https://script.google.com/macros/s/AKfycbyWY086W2DUwQdnM-rapVpcPTyGn1tEkhj34lWa38bjn3im0uE50iLt_eecCx_V8hCsNA/exec";
 /* لا تعدّل تحت هذا السطر إلا إذا تبغى تغيّر السلوك */
 const CONFIG = {
   endpoint: ENDPOINT_URL,
