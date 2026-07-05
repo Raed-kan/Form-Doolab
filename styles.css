@@ -205,6 +205,13 @@ textarea.field { resize: none; min-height: 76px; line-height: 1.7; overflow: hid
 .option.is-selected .option__check { opacity: 1; }
 .options__hint { margin-top: 14px; font-size: 13px; color: var(--ink-faint); }
 
+/* بطاقات اختيار الخدمة */
+.option--service { padding: 20px 18px; }
+.svc { display: flex; flex-direction: column; gap: 3px; }
+.svc__label { font-size: clamp(17px, 2.5vw, 20px); font-weight: 600; }
+.svc__desc { font-size: 13px; color: var(--ink-soft); font-weight: 300; }
+.option--service .option__key { font-size: 18px; }
+
 /* ====== مقياس (scale) ====== */
 .scale { margin-top: 10px; }
 .scale__row { display: flex; gap: 10px; }

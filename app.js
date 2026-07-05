@@ -1,55 +1,71 @@
 /* ============================================================
-   دولاب — محرّك الاستبيان (نمط Typeform)
+   دولاب — محرّك البريف الموحّد (اختيار خدمة + تفرّع + توزيع تبويبات)
    ============================================================ */
 (function () {
   "use strict";
 
-  const stage      = document.getElementById("stage");
-  const navbar     = document.getElementById("navbar");
-  const backBtn    = document.getElementById("backBtn");
-  const nextBtn    = document.getElementById("nextBtn");
-  const skipBtn    = document.getElementById("skipBtn");
-  const nextLabel  = document.getElementById("nextLabel");
-  const progressBar= document.getElementById("progressBar");
-  const counter    = document.getElementById("counter");
+  const stage       = document.getElementById("stage");
+  const navbar      = document.getElementById("navbar");
+  const backBtn     = document.getElementById("backBtn");
+  const nextBtn     = document.getElementById("nextBtn");
+  const skipBtn     = document.getElementById("skipBtn");
+  const nextLabel   = document.getElementById("nextLabel");
+  const progressBar = document.getElementById("progressBar");
+  const counter     = document.getElementById("counter");
 
   const ARLET = ["أ","ب","ج","د","ه","و","ز","ح","ط","ي","ك","ل"];
 
   let index = 0;
   const answers = loadAnswers();
+  let selectedServices = (answers.services && answers.services.value) || [];
+  let QUESTIONS = buildFlow(selectedServices);
+  let lastPayloads = null;
 
-  // الأسئلة الفعلية (التي لها id) لحساب التقدّم
-  const realQs = QUESTIONS.filter(q => q.id);
+  /* ---------- بناء تدفّق الأسئلة حسب الخدمات المختارة ---------- */
+  function buildFlow(sel) {
+    const flow = [WELCOME, SERVICE_SELECT];
+    flow.push({ type: "statement", kicker: "نبدأ", title: "نتعرّف عليك", subtitle: "معلومات سريعة تنطبق على كل الخدمات." });
+    COMMON.forEach(q => flow.push(q));
+    SERVICES.filter(s => sel.includes(s.key)).forEach(s => {
+      flow.push({ type: "statement", kicker: s.intro.kicker, title: s.intro.title, subtitle: s.intro.subtitle });
+      s.questions.forEach(q => flow.push(q));
+    });
+    flow.push({ type: "statement", title: "تفاصيل أخيرة", subtitle: "خطوتين وخلصنا ✦" });
+    SHARED_END.forEach(q => flow.push(q));
+    flow.push(END);
+    return flow;
+  }
+
+  function realQuestions() { return QUESTIONS.filter(q => q.id && q.type !== "service"); }
+
+  function realIndexOf(i) {
+    let c = 0;
+    for (let k = 0; k <= i && k < QUESTIONS.length; k++) {
+      if (QUESTIONS[k].id && QUESTIONS[k].type !== "service") c++;
+    }
+    return c;
+  }
 
   /* ---------- حفظ تلقائي ---------- */
   function loadAnswers() {
-    try { return JSON.parse(localStorage.getItem(CONFIG.autosaveKey)) || {}; }
+    try { return JSON.parse(localStorage.getItem("doolab_brief_v2")) || {}; }
     catch (e) { return {}; }
   }
   function saveAnswers() {
-    try { localStorage.setItem(CONFIG.autosaveKey, JSON.stringify(stripFiles(answers))); }
-    catch (e) {}
-  }
-  // لا نخزّن الصور (base64) في localStorage حتى لا نتجاوز الحد
-  function stripFiles(obj) {
-    const c = JSON.parse(JSON.stringify(obj, (k, v) => k === "files" ? undefined : v));
-    return c;
+    try {
+      const c = JSON.parse(JSON.stringify(answers, (k, v) => k === "files" ? undefined : v));
+      localStorage.setItem("doolab_brief_v2", JSON.stringify(c));
+    } catch (e) {}
   }
 
   /* ---------- أدوات ---------- */
   function el(html) { const t = document.createElement("template"); t.innerHTML = html.trim(); return t.content.firstElementChild; }
   function num2(n) { return String(n).padStart(2, "0"); }
-
   function currentQ() { return QUESTIONS[index]; }
-
-  function realIndexOf(i) {
-    let c = 0;
-    for (let k = 0; k <= i && k < QUESTIONS.length; k++) if (QUESTIONS[k].id) c++;
-    return c;
-  }
+  function cleanLabel(t) { return t.replace(/<[^>]+>/g, "").replace(/[؟?]/g, "").trim(); }
 
   /* ---------- الرسم ---------- */
-  function render(direction) {
+  function render() {
     const q = currentQ();
     const old = stage.querySelector(".card");
     const draw = () => {
@@ -57,44 +73,33 @@
       const card = buildCard(q);
       stage.appendChild(card);
       updateChrome(q);
-      focusFirst(card);
+      const f = card.querySelector(".field");
+      if (f) setTimeout(() => f.focus(), 60);
     };
     if (old) { old.classList.add("is-leaving"); setTimeout(draw, 200); }
     else draw();
   }
 
   function updateChrome(q) {
-    const isReal = !!q.id;
+    const isReal = q.id && q.type !== "service";
     navbar.hidden = (q.type === "welcome" || q.type === "end");
     backBtn.style.visibility = index > 0 && q.type !== "end" ? "visible" : "hidden";
-
-    // التخطّي يظهر فقط للأسئلة الاختيارية
-    skipBtn.hidden = !(isReal && q.optional);
-
+    skipBtn.hidden = !(q.id && q.optional);
     nextLabel.textContent = "متابعة";
-    nextBtn.hidden = (q.type === "welcome" || q.type === "end" || q.type === "statement");
-    if (q.type === "statement") { nextBtn.hidden = false; nextLabel.textContent = "متابعة"; }
+    nextBtn.hidden = (q.type === "welcome" || q.type === "end");
 
-    // التقدّم
-    const ri = isReal ? realIndexOf(index) : realIndexOf(index);
-    const pct = Math.round((realIndexOf(index) / realQs.length) * 100);
-    progressBar.style.width = Math.min(pct, 100) + "%";
-    counter.textContent = isReal ? `${num2(realIndexOf(index))} / ${num2(realQs.length)}` : "";
+    const total = realQuestions().length;
+    const done = realIndexOf(index);
+    progressBar.style.width = Math.min(Math.round((done / total) * 100), 100) + "%";
+    counter.textContent = isReal ? `${num2(done)} / ${num2(total)}` : "";
   }
 
-  function focusFirst(card) {
-    const f = card.querySelector(".field");
-    if (f) setTimeout(() => f.focus(), 60);
-  }
-
-  /* ---------- بناء البطاقات ---------- */
+  /* ---------- البطاقات ---------- */
   function buildCard(q) {
-    switch (q.type) {
-      case "welcome":   return buildWelcome(q);
-      case "statement": return buildStatement(q);
-      case "end":       return buildEnd(q);
-      default:          return buildQuestion(q);
-    }
+    if (q.type === "welcome")   return buildWelcome(q);
+    if (q.type === "statement") return buildStatement(q);
+    if (q.type === "end")       return buildEnd(q);
+    return buildQuestion(q);
   }
 
   function buildWelcome(q) {
@@ -129,25 +134,26 @@
   }
 
   function buildQuestion(q) {
-    const ri = realIndexOf(index);
+    const isService = q.type === "service";
+    const numHtml = isService ? "" : `<span class="q-meta__num">${num2(realIndexOf(index))}</span>
+        <svg viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
     const card = el(`<div class="card">
       <div class="q-meta">
-        <span class="q-meta__num">${num2(ri)}</span>
-        <svg viewBox="0 0 24 24"><path d="M14 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        ${numHtml}
         ${q.section ? `<span class="q-meta__sec">${q.section}</span>` : ""}
       </div>
       <h2 class="q-title">${q.title}${q.required ? '<span class="req">✶</span>' : ""}</h2>
       ${q.subtitle ? `<p class="q-sub">${q.subtitle}</p>` : ""}
       <div class="q-body"></div>
     </div>`);
-    const body = card.querySelector(".q-body");
-    body.appendChild(buildInput(q));
+    card.querySelector(".q-body").appendChild(buildInput(q));
     return card;
   }
 
-  /* ---------- مدخلات حسب النوع ---------- */
+  /* ---------- المدخلات ---------- */
   function buildInput(q) {
     switch (q.type) {
+      case "service": return buildService(q);
       case "short":
       case "email":
       case "tel":   return buildText(q, "input");
@@ -161,12 +167,35 @@
     }
   }
 
+  function buildService(q) {
+    const wrap = el(`<div class="options"></div>`);
+    const sel = new Set(selectedServices);
+    SERVICES.forEach(s => {
+      const o = el(`<button type="button" class="option option--service ${sel.has(s.key) ? "is-selected" : ""}">
+        <span class="option__key">${s.icon || "◆"}</span>
+        <span class="svc"><span class="svc__label">${s.label}</span><span class="svc__desc">${s.desc}</span></span>
+        <span class="option__check">${checkMini()}</span>
+      </button>`);
+      o.addEventListener("click", () => {
+        if (sel.has(s.key)) sel.delete(s.key); else sel.add(s.key);
+        o.classList.toggle("is-selected");
+        selectedServices = SERVICES.map(x => x.key).filter(k => sel.has(k)); // ترتيب ثابت
+        answers.services = { value: selectedServices };
+        QUESTIONS = buildFlow(selectedServices);
+        saveAnswers();
+      });
+      wrap.appendChild(o);
+    });
+    wrap.appendChild(el(`<p class="options__hint">تقدر تختار أكثر من خدمة · اضغط «متابعة»</p>`));
+    return wrap;
+  }
+
   function buildText(q, tag) {
     const type = q.type === "email" ? "email" : q.type === "tel" ? "tel" : "text";
-    const val  = answers[q.id]?.value || "";
+    const val = (answers[q.id] && answers[q.id].value) || "";
     const node = tag === "textarea"
       ? el(`<textarea class="field" rows="1" placeholder="${q.placeholder || ""}">${val}</textarea>`)
-      : el(`<input class="field" type="${type}" placeholder="${q.placeholder || ""}" value="${val.replace(/"/g,'&quot;')}" />`);
+      : el(`<input class="field" type="${type}" placeholder="${q.placeholder || ""}" value="${String(val).replace(/"/g,'&quot;')}" />`);
     if (tag === "textarea") {
       const grow = () => { node.style.height = "auto"; node.style.height = node.scrollHeight + "px"; };
       node.addEventListener("input", grow); setTimeout(grow, 0);
@@ -180,11 +209,10 @@
 
   function buildChoices(q) {
     const multi = q.type === "multi";
-    const wrap = el(`<div class="options" role="${multi ? "group" : "radiogroup"}"></div>`);
-    const sel = new Set(answers[q.id]?.value || []);
+    const wrap = el(`<div class="options"></div>`);
+    const sel = new Set((answers[q.id] && answers[q.id].value) || []);
     q.options.forEach((opt, i) => {
-      const isSel = sel.has(opt);
-      const o = el(`<button type="button" class="option ${isSel ? "is-selected" : ""}">
+      const o = el(`<button type="button" class="option ${sel.has(opt) ? "is-selected" : ""}">
         <span class="option__key">${ARLET[i] || i + 1}</span>
         <span class="option__label">${opt}</span>
         <span class="option__check">${checkMini()}</span>
@@ -192,17 +220,14 @@
       o.addEventListener("click", () => {
         if (multi) {
           if (sel.has(opt)) sel.delete(opt);
-          else {
-            if (q.maxChoices && sel.size >= q.maxChoices) { flashLimit(wrap); return; }
-            sel.add(opt);
-          }
+          else { if (q.maxChoices && sel.size >= q.maxChoices) { flashLimit(wrap); return; } sel.add(opt); }
           o.classList.toggle("is-selected");
           answers[q.id] = { value: [...sel] }; saveAnswers();
         } else {
           wrap.querySelectorAll(".option").forEach(n => n.classList.remove("is-selected"));
           o.classList.add("is-selected");
           answers[q.id] = { value: [opt] }; saveAnswers();
-          setTimeout(goNext, 260);
+          setTimeout(goNext, 240);
         }
       });
       wrap.appendChild(o);
@@ -215,22 +240,22 @@
   }
 
   function flashLimit(wrap) {
-    const hint = wrap.querySelector(".options__hint");
-    if (hint) { hint.classList.add("shake"); setTimeout(() => hint.classList.remove("shake"), 400); }
+    const h = wrap.querySelector(".options__hint");
+    if (h) { h.classList.add("shake"); setTimeout(() => h.classList.remove("shake"), 400); }
   }
 
   function buildScale(q) {
     const wrap = el(`<div class="scale"><div class="scale__row"></div>
       <div class="scale__labels"><span>${q.rightLabel}</span><span>${q.leftLabel}</span></div></div>`);
     const row = wrap.querySelector(".scale__row");
-    const cur = answers[q.id]?.value;
+    const cur = answers[q.id] && answers[q.id].value;
     for (let n = q.min; n <= q.max; n++) {
       const d = el(`<button type="button" class="scale__dot ${cur == n ? "is-selected" : ""}">${n}</button>`);
       d.addEventListener("click", () => {
         row.querySelectorAll(".scale__dot").forEach(x => x.classList.remove("is-selected"));
         d.classList.add("is-selected");
         answers[q.id] = { value: n }; saveAnswers();
-        setTimeout(goNext, 260);
+        setTimeout(goNext, 240);
       });
       row.appendChild(d);
     }
@@ -238,7 +263,7 @@
   }
 
   function buildDate(q) {
-    const val = answers[q.id]?.value || "";
+    const val = (answers[q.id] && answers[q.id].value) || "";
     const node = el(`<input class="field" type="date" value="${val}" />`);
     node.addEventListener("input", () => { answers[q.id] = { value: node.value }; saveAnswers(); });
     return node;
@@ -248,7 +273,6 @@
     if (!answers[q.id]) answers[q.id] = { note: "", files: [] };
     if (!answers[q.id].files) answers[q.id].files = [];
     const state = answers[q.id];
-
     const wrap = el(`<div class="upload">
       <label class="dropzone">
         ${uploadSVG()}
@@ -259,12 +283,10 @@
       <div class="thumbs"></div>
       <textarea class="field" rows="1" placeholder="${q.notePlaceholder || "ملاحظة (اختياري)"}">${state.note || ""}</textarea>
     </div>`);
-
-    const dz    = wrap.querySelector(".dropzone");
+    const dz = wrap.querySelector(".dropzone");
     const input = wrap.querySelector('input[type="file"]');
-    const thumbs= wrap.querySelector(".thumbs");
-    const note  = wrap.querySelector("textarea");
-
+    const thumbs = wrap.querySelector(".thumbs");
+    const note = wrap.querySelector("textarea");
     note.addEventListener("input", () => { state.note = note.value.trim(); saveAnswers(); });
 
     function renderThumbs() {
@@ -293,15 +315,14 @@
     ["dragover","dragenter"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("is-over"); }));
     ["dragleave","drop"].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("is-over"); }));
     dz.addEventListener("drop", e => addFiles(e.dataTransfer.files));
-
     return wrap;
   }
 
   /* ---------- التحقّق ---------- */
   function validate(q) {
-    if (!q.id || q.optional) return true;
+    if (q.type === "service") return selectedServices.length > 0;
+    if (!q.id || q.optional || !q.required) return true;
     const a = answers[q.id];
-    if (!q.required) return true;
     if (q.type === "multi" || q.type === "single") return a && a.value && a.value.length;
     if (q.type === "scale") return a && a.value != null;
     if (q.type === "email") return a && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.value);
@@ -309,35 +330,21 @@
   }
 
   function shakeCard() {
-    const card = stage.querySelector(".card");
-    if (card) { card.classList.add("shake"); setTimeout(() => card.classList.remove("shake"), 420); }
+    const c = stage.querySelector(".card");
+    if (c) { c.classList.add("shake"); setTimeout(() => c.classList.remove("shake"), 420); }
   }
 
   /* ---------- التنقّل ---------- */
   function goNext() {
     const q = currentQ();
-    if (q.id && !validate(q)) { shakeCard(); return; }
+    if (!validate(q)) { shakeCard(); return; }
     if (index >= QUESTIONS.length - 1) return;
-
-    // آخر سؤال قبل شاشة النهاية → إرسال
-    const next = QUESTIONS[index + 1];
-    if (next.type === "end") { submit(); return; }
-
+    if (QUESTIONS[index + 1].type === "end") { submit(); return; }
     index++;
-    render("next");
+    render();
   }
-
-  function goBack() {
-    if (index === 0) return;
-    index--;
-    render("back");
-  }
-
-  function skip() {
-    const q = currentQ();
-    if (q.optional && q.id) { /* نترك الإجابة كما هي (فارغة) */ }
-    goNext();
-  }
+  function goBack() { if (index > 0) { index--; render(); } }
+  function skip() { goNext(); }
 
   backBtn.addEventListener("click", goBack);
   nextBtn.addEventListener("click", goNext);
@@ -346,88 +353,84 @@
   document.addEventListener("keydown", (e) => {
     const q = currentQ();
     if (e.key === "Enter") {
-      const tag = document.activeElement?.tagName;
+      const tag = document.activeElement && document.activeElement.tagName;
       if (tag === "TEXTAREA" && q.type === "long" && !(e.ctrlKey || e.metaKey)) return;
-      if (q.type === "welcome") { e.preventDefault(); goNext(); }
-      else if (q.type !== "end") { e.preventDefault(); goNext(); }
+      if (q.type !== "end") { e.preventDefault(); goNext(); }
     }
-    if (e.key === "Tab") return;
   });
 
-  /* ---------- الإرسال ---------- */
-  async function submit() {
-    // شاشة الإرسال
-    stage.innerHTML = "";
-    navbar.hidden = true;
-    progressBar.style.width = "100%";
-    const sendingCard = el(`<div class="card"><div class="hero sending">
-      <div class="spinner"></div>
-      <p class="hero__sub">نرسل بريفك إلى فريق دولاب…</p>
-    </div></div>`);
-    stage.appendChild(sendingCard);
-
-    const payload = buildPayload();
-
-    try {
-      if (!CONFIG.endpoint) throw new Error("NO_ENDPOINT");
-      const res = await fetch(CONFIG.endpoint, {
-        method: "POST",
-        // text/plain يتجنّب طلب preflight (CORS) مع Apps Script
-        headers: { "Content-Type": "text/plain;charset=utf-8" },
-        body: JSON.stringify(payload)
-      });
-      const out = await res.json().catch(() => ({}));
-      if (!res.ok || out.status === "error") throw new Error(out.message || "SERVER");
-      finishSuccess();
-    } catch (err) {
-      finishError(err, payload);
-    }
+  /* ---------- الإرسال (POST لكل خدمة على تبويبها) ---------- */
+  function shortId() {
+    const t = Date.now().toString(36).toUpperCase();
+    return "DL-" + t.slice(-6);
   }
 
-  function buildPayload() {
-    const ordered = [];   // [{label, value}] بترتيب الأسئلة → أعمدة الشيت
+  function buildServicePayload(service, submissionId) {
+    const qs = COMMON.concat(service.questions).concat(SHARED_END);
+    const ordered = [{ id: "submission_id", label: "معرّف الطلب", value: submissionId },
+                     { id: "service_name",  label: "الخدمة",       value: service.label }];
     const files = [];
-    realQs.forEach(q => {
+    qs.forEach(q => {
       const a = answers[q.id];
       let value = "";
       if (a) {
         if (q.type === "upload") {
           value = a.note || "";
           (a.files || []).forEach(f => files.push({ field: q.id, label: cleanLabel(q.title), name: f.name, type: f.type, dataUrl: f.dataUrl }));
-        } else if (Array.isArray(a.value)) {
-          value = a.value.join("، ");
-        } else if (a.value != null) {
-          value = a.value;
-        }
+        } else if (Array.isArray(a.value)) value = a.value.join("، ");
+        else if (a.value != null) value = a.value;
       }
       ordered.push({ id: q.id, label: cleanLabel(q.title), value: String(value) });
     });
-    return {
-      form: FORM_ID,
-      formTitle: FORM_TITLE,
-      submittedAt: new Date().toISOString(),
-      ordered,
-      files
-    };
+    return { form: service.form, formTitle: service.label, submittedAt: new Date().toISOString(), submissionId, ordered, files };
   }
 
-  function cleanLabel(t) { return t.replace(/<[^>]+>/g, "").replace(/[؟?]/g, "").trim(); }
+  async function submit() {
+    stage.innerHTML = "";
+    navbar.hidden = true;
+    progressBar.style.width = "100%";
+    stage.appendChild(el(`<div class="card"><div class="hero sending">
+      <div class="spinner"></div>
+      <p class="hero__sub">نرسل طلبك إلى فريق دولاب…</p>
+    </div></div>`));
+
+    const submissionId = shortId();
+    const chosen = SERVICES.filter(s => selectedServices.includes(s.key));
+    const payloads = chosen.map(s => buildServicePayload(s, submissionId));
+    lastPayloads = payloads;
+
+    try {
+      if (!CONFIG.endpoint) throw new Error("NO_ENDPOINT");
+      for (const p of payloads) {
+        const res = await fetch(CONFIG.endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "text/plain;charset=utf-8" },
+          body: JSON.stringify(p)
+        });
+        const out = await res.json().catch(() => ({}));
+        if (!res.ok || out.status === "error") throw new Error(out.message || "SERVER");
+      }
+      finishSuccess();
+    } catch (err) {
+      finishError(err);
+    }
+  }
 
   function finishSuccess() {
-    localStorage.removeItem(CONFIG.autosaveKey);
-    index = QUESTIONS.length - 1; // شاشة النهاية
-    render("next");
+    localStorage.removeItem("doolab_brief_v2");
+    index = QUESTIONS.length - 1;
+    render();
   }
 
-  function finishError(err, payload) {
-    const isNoEndpoint = String(err.message) === "NO_ENDPOINT";
+  function finishError(err) {
+    const noEp = String(err.message) === "NO_ENDPOINT";
     stage.innerHTML = "";
     const card = el(`<div class="card"><div class="hero">
-      <h1 class="hero__title">${isNoEndpoint ? "وضع المعاينة" : "تعذّر الإرسال"}</h1>
-      <p class="hero__sub">${isNoEndpoint
+      <h1 class="hero__title">${noEp ? "وضع المعاينة" : "تعذّر الإرسال"}</h1>
+      <p class="hero__sub">${noEp
         ? "لم يتم ربط Google Sheet بعد. إجاباتك سليمة — اربط الرابط في config.js ثم جرّب مرة ثانية."
-        : "صار خطأ بسيط أثناء الإرسال. تقدر تعيد المحاولة، أو تنزّل نسخة من إجاباتك."}</p>
-      <div class="error-box">${isNoEndpoint ? "للمطوّر: عبّئ ENDPOINT_URL في config.js" : (err.message || "خطأ غير معروف")}</div>
+        : "صار خطأ بسيط أثناء الإرسال. تقدر تعيد المحاولة أو تنزّل نسخة من إجاباتك."}</p>
+      <div class="error-box">${noEp ? "للمطوّر: عبّئ ENDPOINT_URL في config.js" : (err.message || "خطأ غير معروف")}</div>
       <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap">
         <button class="cta" id="retryBtn">إعادة المحاولة</button>
         <button class="cta" id="dlBtn" style="background:transparent;color:var(--cream);box-shadow:none;border:1.5px solid var(--line)">تنزيل نسخة</button>
@@ -435,24 +438,25 @@
     </div></div>`);
     stage.appendChild(card);
     card.querySelector("#retryBtn").addEventListener("click", submit);
-    card.querySelector("#dlBtn").addEventListener("click", () => downloadJSON(payload));
+    card.querySelector("#dlBtn").addEventListener("click", downloadJSON);
   }
 
-  function downloadJSON(payload) {
-    const light = JSON.parse(JSON.stringify(payload));
-    light.files = (light.files || []).map(f => ({ field: f.field, name: f.name, type: f.type }));
+  function downloadJSON() {
+    const light = (lastPayloads || []).map(p => ({ ...p, files: (p.files || []).map(f => ({ field: f.field, name: f.name, type: f.type })) }));
     const blob = new Blob([JSON.stringify(light, null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = `doolab-brief-${FORM_ID}.json`;
+    a.download = "doolab-brief.json";
     a.click();
   }
 
   function restart() {
-    localStorage.removeItem(CONFIG.autosaveKey);
+    localStorage.removeItem("doolab_brief_v2");
     for (const k in answers) delete answers[k];
+    selectedServices = [];
+    QUESTIONS = buildFlow([]);
     index = 0;
-    render("next");
+    render();
   }
 
   /* ---------- أيقونات ---------- */
@@ -464,6 +468,5 @@
         stroke-dasharray="80" stroke-dashoffset="80"><animate attributeName="stroke-dashoffset" from="80" to="0" dur="0.6s" begin="0.15s" fill="freeze"/></path></svg>`;
   }
 
-  /* ---------- إقلاع ---------- */
-  render("next");
+  render();
 })();
